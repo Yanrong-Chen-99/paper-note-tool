@@ -10,6 +10,7 @@ import hashlib
 import re
 from collections import Counter
 import math
+import time  # <-- for 1s pause before rerun
 
 # -----------------------
 # Page
@@ -49,12 +50,14 @@ TAG_BORDER_PALETTE = [
 # Utils
 # -----------------------
 def hard_rerun():
+    """Force a rerun, with a query param fallback."""
     try:
         st.rerun()
     except Exception:
         st.query_params.update({"_": str(uuid.uuid4())})
 
 def normalize_year_value(val: str) -> str:
+    """Extract a 1000–2999 year-like integer from messy input, else return empty."""
     s = str(val or "").strip()
     m = re.search(r"\b(1\d{3}|2\d{3})\b", s)  # 1000-2999
     if m:
@@ -68,6 +71,7 @@ def normalize_year_value(val: str) -> str:
     return ""
 
 def to_int_year_safe(x):
+    """Convert year string to sortable int; use very small sentinel when missing."""
     s = normalize_year_value(x)
     try:
         return int(s) if s else -10**9
@@ -75,6 +79,7 @@ def to_int_year_safe(x):
         return -10**9
 
 def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure all required columns exist and are ordered; normalize year."""
     if "doi_or_url" not in df.columns and "pdf_link" in df.columns:
         df["doi_or_url"] = df["pdf_link"]
     for col in REQUIRED_COLUMNS:
@@ -84,6 +89,7 @@ def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[REQUIRED_COLUMNS]
 
 def save_all(df: pd.DataFrame):
+    """Persist to XLSX, CSV, and JSON (always in sync)."""
     df = ensure_columns(df.copy())
     with pd.ExcelWriter(XLSX_PATH, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="papers")
@@ -92,6 +98,7 @@ def save_all(df: pd.DataFrame):
         json.dump(df.to_dict(orient="records"), f, ensure_ascii=False, indent=2)
 
 def load_data() -> pd.DataFrame:
+    """Load from CSV (preferred) or JSON fallback; ensure schema and IDs."""
     df = pd.DataFrame(columns=REQUIRED_COLUMNS)
     if os.path.exists(CSV_PATH):
         try:
@@ -112,6 +119,7 @@ def load_data() -> pd.DataFrame:
     return df
 
 def make_record(d: dict) -> dict:
+    """Build a new canonical record from input dict."""
     return {
         "id": str(uuid.uuid4()),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
@@ -129,16 +137,19 @@ def make_record(d: dict) -> dict:
     }
 
 def idx_by_id(df: pd.DataFrame, rec_id: str):
+    """Return integer index for record ID, else None."""
     hit = df.index[df["id"] == rec_id]
     return int(hit[0]) if len(hit) else None
 
 def parse_tags(tag_str: str):
+    """Split tags by commas/semicolons/slashes/pipes/whitespace; trim blanks."""
     if not isinstance(tag_str, str):
         return []
     parts = re.split(r"[,\uFF0C;\uFF1B/|]+|\s+", str(tag_str).strip())
     return [p for p in (t.strip() for t in parts) if p]
 
 def color_for_tag(tag: str):
+    """Map tag to deterministic background/border color from palettes."""
     if not tag:
         return TAG_COLOR_PALETTE[0], TAG_BORDER_PALETTE[0]
     h = int(hashlib.md5(tag.lower().encode("utf-8")).hexdigest(), 16)
@@ -146,12 +157,14 @@ def color_for_tag(tag: str):
     return TAG_COLOR_PALETTE[i], TAG_BORDER_PALETTE[i]
 
 def card_bg_for_tags(tags: list, fallback_idx: int):
+    """Pick a pleasant card background influenced by first tag or fallback."""
     if not tags:
         return CARD_BG_FALLBACKS[fallback_idx % len(CARD_BG_FALLBACKS)]
     bg, _ = color_for_tag(tags[0])
     return bg
 
 def tag_chips_html(tags: list):
+    """Render small HTML chips for tag list."""
     chips = []
     for t in tags:
         bg, border = color_for_tag(t)
@@ -162,9 +175,11 @@ def tag_chips_html(tags: list):
     return "".join(chips) if chips else '<span style="color:#777">—</span>'
 
 def normalize_text(x):
+    """Trim and lowercase a string safely."""
     return (x or "").strip().lower()
 
 def apply_filters(df: pd.DataFrame, q: str, selected_tags: list, mode: str):
+    """Apply keyword + tag filters to dataframe."""
     out = ensure_columns(df.copy())
     if q.strip():
         qq = normalize_text(q)
@@ -192,6 +207,7 @@ def apply_filters(df: pd.DataFrame, q: str, selected_tags: list, mode: str):
     return ensure_columns(out)
 
 def apply_sort(df: pd.DataFrame, field: str, ascending: bool):
+    """Sort by supported field; year is sorted numerically via helper."""
     df = ensure_columns(df.copy())
     if df.empty:
         return df
@@ -203,6 +219,7 @@ def apply_sort(df: pd.DataFrame, field: str, ascending: bool):
         return df
 
 def set_filters_to_tag(tag: str):
+    """Quickly set filters to a single tag."""
     st.session_state["applied_filters"] = {"q": "", "tags": [tag], "mode": "ANY"}
     hard_rerun()
 
@@ -212,81 +229,99 @@ def set_filters_to_tag(tag: str):
 df = load_data()
 
 # =========================================================
-# (1) Add New Paper
+# (1) Add New Paper — keep all features + clear form + stronger dedupe
 # =========================================================
+# Use a nonce to force new widget keys after saving, which resets values to empty.
+if "new_form_nonce" not in st.session_state:
+    st.session_state["new_form_nonce"] = 0
+nonce = st.session_state["new_form_nonce"]
+
 st.subheader("Add New Paper (all fields optional)")
 st.caption("Tip: move between fields with **Tab** or by clicking; duplicate checks run automatically.")
 
 # Title / Authors
-title = st.text_input("Paper Title", key="new_title")
-authors = st.text_input("Authors (comma separated)", key="new_authors")
+title = st.text_input("Paper Title", key=f"new_title_{nonce}")
+authors = st.text_input("Authors (comma separated)", key=f"new_authors_{nonce}")
 
-dup_exists = False
-if title.strip() and authors.strip():
-    dup_exists = ((df["title"].str.strip().str.lower() == title.strip().lower()) &
-                  (df["authors"].str.strip().str.lower() == authors.strip().lower())).any()
-    if dup_exists:
-        st.warning("A note with the same **Title + Authors** already exists. Saving is disabled.")
+# Duplicate check: title + authors (case-insensitive, trimmed)
+def _norm(s): return str(s or "").strip().lower()
+dup_mask = (
+    (_norm(title) != "") & (_norm(authors) != "") &
+    (df["title"].str.strip().str.lower() == _norm(title)) &
+    (df["authors"].str.strip().str.lower() == _norm(authors))
+)
+dup_exists = dup_mask.any()
+if dup_exists:
+    st.warning("A note with the same **Title + Authors** already exists. Saving is disabled.")
+    # Show first two matches as a hint
+    _dups = df.loc[dup_mask, ["title", "authors", "year", "journal"]].head(2)
+    for _, r in _dups.iterrows():
+        st.caption(f"• {r['title']} — {r['authors']} ({r['year'] or '—'}) | {r['journal'] or '—'}")
 
 col_year, col_journal = st.columns([1, 2])
 with col_year:
-    year = st.text_input("Year", key="new_year")
+    year = st.text_input("Year", key=f"new_year_{nonce}")
 with col_journal:
-    journal = st.text_input("Journal / Conference / Source", key="new_journal")
+    journal = st.text_input("Journal / Conference / Source", key=f"new_journal_{nonce}")
 
-# ---- Population + tip ----
+# Population (with hint to use tags for population keywords)
 st.markdown("Population")
 st.caption("Tip: describe the population in detail here and put population keywords in Tags.")
-population = st.text_input("", key="new_population", label_visibility="collapsed")
+population = st.text_input("", key=f"new_population_{nonce}", label_visibility="collapsed")
 
 # Variables / Measures / Takeaway
-main_variables = st.text_area("Main Variables", key="new_variables")
-measures = st.text_area("Measures / Methods", key="new_measures")
-takeaway = st.text_area("Takeaway / Key Points", key="new_takeaway")
+main_variables = st.text_area("Main Variables", key=f"new_variables_{nonce}")
+measures = st.text_area("Measures / Methods", key=f"new_measures_{nonce}")
+takeaway = st.text_area("Takeaway / Key Points", key=f"new_takeaway_{nonce}")
 
-# ---- Tags+ tip ----
+# Tags (choose existing + add new)
 st.markdown("Tags (choose from existing)")
 st.caption("Tip: add population keywords (e.g., adolescents, depression) as tags so that you can filter by population.")
 tag_col1, tag_col2 = st.columns([3, 2])
 with tag_col1:
     existing_tags = sorted({t for s in df["tags"] for t in parse_tags(s)})
-    tag_select = st.multiselect("", options=existing_tags, default=[], key="new_tag_select",
+    tag_select = st.multiselect("", options=existing_tags, default=[], key=f"new_tag_select_{nonce}",
                                 label_visibility="collapsed")
 with tag_col2:
-    tag_newtext = st.text_input("+ New tags (comma separated)", key="new_tag_new")
+    tag_newtext = st.text_input("+ New tags (comma separated)", key=f"new_tag_new_{nonce}")
 
-doi_or_url = st.text_input("DOI or URL", key="new_doi")
-notes = st.text_area("Additional Notes", key="new_notes")
+doi_or_url = st.text_input("DOI or URL", key=f"new_doi_{nonce}")
+notes = st.text_area("Additional Notes", key=f"new_notes_{nonce}")
 
-# Save button
-save_new = st.button("Save Note")
+# Save button — disabled when duplicate is detected
+save_new = st.button("Save Note", key=f"save_new_{nonce}", disabled=dup_exists)
 
 if save_new:
-    if dup_exists:
-        st.warning("Duplicate detected. Please modify Title or Authors.")
-    else:
-        extra_list = [t.strip() for t in re.split(r"[,\uFF0C;\uFF1B/|]+", st.session_state.get("new_tag_new","")) if t.strip()] if st.session_state.get("new_tag_new","").strip() else []
-        final_tags = sorted(set(st.session_state.get("new_tag_select", []) + extra_list), key=lambda x: x.lower())
-        tags_str = ", ".join(final_tags)
-        d = {
-            "title": st.session_state.get("new_title",""),
-            "authors": st.session_state.get("new_authors",""),
-            "year": st.session_state.get("new_year",""),
-            "journal": st.session_state.get("new_journal",""),
-            "population": st.session_state.get("new_population",""),
-            "main_variables": st.session_state.get("new_variables",""),
-            "measures": st.session_state.get("new_measures",""),
-            "takeaway": st.session_state.get("new_takeaway",""),
-            "tags": tags_str,
-            "doi_or_url": st.session_state.get("new_doi",""),
-            "notes": st.session_state.get("new_notes",""),
-        }
-        df = pd.concat([df, pd.DataFrame([make_record(d)])], ignore_index=True)
-        save_all(df)
-        st.success("Saved!")
+    # Build and save the new record
+    extra_list = [t.strip() for t in re.split(r"[,\uFF0C;\uFF1B/|]+", tag_newtext) if t.strip()] if tag_newtext.strip() else []
+    final_tags = sorted(set(tag_select + extra_list), key=lambda x: x.lower())
+    tags_str = ", ".join(final_tags)
+    d = {
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "journal": journal,
+        "population": population,
+        "main_variables": main_variables,
+        "measures": measures,
+        "takeaway": takeaway,
+        "tags": tags_str,
+        "doi_or_url": doi_or_url,
+        "notes": notes,
+    }
+    df = pd.concat([df, pd.DataFrame([make_record(d)])], ignore_index=True)
+    save_all(df)
+
+    # Show success, then pause 1 second so the message is visible before refresh
+    st.success("Saved! Fields will clear shortly…")
+    time.sleep(1)
+
+    # Increment nonce so all 'new_*' widgets get new keys (clean form), then rerun
+    st.session_state["new_form_nonce"] = nonce + 1
+    st.rerun()
 
 # =========================================================
-# (2) Search & Filter / Import & Export（need to Apply）
+# (2) Search & Filter / Import & Export (need to Apply)
 # =========================================================
 with st.expander("🔎 Search & Filter / ⏫ Import & ⏬ Export", expanded=False):
     c1, c2, c3 = st.columns([2, 2, 1.2])
@@ -309,7 +344,7 @@ with st.expander("🔎 Search & Filter / ⏫ Import & ⏬ Export", expanded=Fals
         )
 
     st.markdown("---")
-    # Import
+    # Bulk Import CSV (append + de-dup based on title+authors if present)
     imp_c1, _ = st.columns([2, 2])
     with imp_c1:
         st.markdown("**Bulk Import CSV**")
@@ -349,7 +384,7 @@ with st.expander("🔎 Search & Filter / ⏫ Import & ⏬ Export", expanded=Fals
             except Exception as e:
                 st.error(f"Import failed: {e}")
 
-    # Apply filters
+    # Apply filters button
     st.markdown("---")
     if st.button("Apply filters"):
         st.session_state["applied_filters"] = {
@@ -398,7 +433,7 @@ with st.expander("🔎 Search & Filter / ⏫ Import & ⏬ Export", expanded=Fals
             mime="application/json")
 
 # =========================================================
-# (3) Saved Papers —— sort & Compact View
+# (3) Saved Papers — sort & compact view
 # =========================================================
 applied = st.session_state.get("applied_filters", {"q": "", "tags": [], "mode": "ANY"})
 filtered_df = apply_filters(df, applied["q"], applied["tags"], applied["mode"])
@@ -406,7 +441,7 @@ filtered_df = apply_filters(df, applied["q"], applied["tags"], applied["mode"])
 st.markdown("---")
 st.subheader(f"📄 Saved Papers — Showing {len(filtered_df)} of {len(df)}")
 st.caption(
-    "Auto backups: **Excel** `{XLSX_PATH}` → **CSV** `{CSV_PATH}` → **JSON** `{JSON_PATH}` (always up-to-date)"
+    f"Auto backups: **Excel** `{XLSX_PATH}` → **CSV** `{CSV_PATH}` → **JSON** `{JSON_PATH}` (always up-to-date)"
 )
 
 sc1, sc2, sc3 = st.columns([2.2, 1.2, 1.2])
@@ -486,7 +521,8 @@ def render_card(row, i, key_prefix: str):
             if real_idx is not None and st.session_state.get(confirm_key, True):
                 dfn = df.drop(index=real_idx).reset_index(drop=True)
                 save_all(dfn)
-                st.success("Deleted.")
+                st.success("Deleted. Reloading...")
+                time.sleep(0.6)
                 for k in list(st.session_state.keys()):
                     if k.endswith(f"_confirm_{rec_id}") or k == f"editing_{rec_id}":
                         st.session_state.pop(k, None)
@@ -510,7 +546,7 @@ def render_card(row, i, key_prefix: str):
                 new_authors = st.text_input("Authors", current["authors"], key=f"{key_prefix}_edit_authors_{rec_id}")
                 new_journal = st.text_input("Journal / Conference / Source", current["journal"], key=f"{key_prefix}_edit_journal_{rec_id}")
 
-                # ---- Population + tip ----
+                # Population hint
                 st.markdown("**Population**")
                 st.caption("Tip: describe the population; put keywords in Tags.")
                 new_population = st.text_input("", current["population"],
@@ -521,7 +557,7 @@ def render_card(row, i, key_prefix: str):
                 new_measures = st.text_area("Measures / Methods", current["measures"], key=f"{key_prefix}_edit_measures_{rec_id}")
                 new_takeaway = st.text_area("Takeaway / Key Points", current["takeaway"], key=f"{key_prefix}_edit_takeaway_{rec_id}")
 
-                # ---- Tags----
+                # Tags editor (existing + extra)
                 st.markdown("**Tags (autocomplete from existing)**")
                 st.caption("Tip: add population keywords (e.g., adolescents, depression) as tags so that you can filter by population.")
                 tagc1, tagc2 = st.columns([3, 2])
@@ -559,7 +595,8 @@ def render_card(row, i, key_prefix: str):
                             "notes": new_notes,
                         }
                         save_all(df)
-                        st.success("Changes saved!")
+                        st.success("Changes saved! Reloading...")
+                        time.sleep(1)
                         st.session_state[f"editing_{rec_id}"] = False
                         hard_rerun()
                 with c2:
@@ -660,7 +697,7 @@ else:
             st.info("No tags to group.")
 
 # =========================================================
-# Tag Stats & Fancy Tag Cloud（HTML/CSS）+ Clickable Chips
+# Tag Stats & Fancy Tag Cloud (HTML/CSS) + Clickable Chips
 # =========================================================
 st.markdown("---")
 st.subheader("🏷 Tag Statistics & Cloud (based on **applied** filters)")
@@ -711,12 +748,12 @@ else:
                 set_filters_to_tag(t)
 
 # =========================================================
-# Full Export / Backup (All Records) —— automatically update
+# Full Export / Backup (All Records) — auto-updated on any change
 # =========================================================
 st.markdown("---")
 st.subheader("Full Export / Backup (All Records)")
 st.caption(
-    "No extra buttons here: the app **automatically keeps** these files up-to-date after every add/edit/delete/import:\n"
+    f"No extra buttons here: the app **automatically keeps** these files up-to-date after every add/edit/delete/import:\n"
     f"1) **Excel**: `{XLSX_PATH}`\n"
     f"2) **CSV**: `{CSV_PATH}`\n"
     f"3) **JSON**: `{JSON_PATH}`"
