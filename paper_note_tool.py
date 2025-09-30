@@ -15,7 +15,7 @@ import math
 # Page
 # -----------------------
 st.set_page_config(page_title="Paper Note Tool", layout="wide")
-st.title("???? Paper Note Tool")
+st.title("📚 Paper Note Tool")
 st.markdown(
     "This tool **automatically saves** to **Excel / CSV / JSON** after add/edit/delete/import. "
 )
@@ -159,7 +159,7 @@ def tag_chips_html(tags: list):
             f'<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;'
             f'border:1px solid {border};border-radius:999px;background:{bg};font-size:12px;">{t}</span>'
         )
-    return "".join(chips) if chips else '<span style="color:#777">???</span>'
+    return "".join(chips) if chips else '<span style="color:#777">—</span>'
 
 def normalize_text(x):
     return (x or "").strip().lower()
@@ -286,9 +286,9 @@ if save_new:
         st.success("Saved!")
 
 # =========================================================
-# (2) Search & Filter / Import & Export???????????? Apply???
+# (2) Search & Filter / Import & Export（need to Apply）
 # =========================================================
-with st.expander("???? Search & Filter / ??? Import & ??? Export", expanded=False):
+with st.expander("🔎 Search & Filter / ⏫ Import & ⏬ Export", expanded=False):
     c1, c2, c3 = st.columns([2, 2, 1.2])
     with c1:
         q_input = st.text_input(
@@ -398,15 +398,15 @@ with st.expander("???? Search & Filter / ??? Import & ??? Export", expanded=Fals
             mime="application/json")
 
 # =========================================================
-# (3) Saved Papers ?????? ?????? & Compact View
+# (3) Saved Papers —— sort & Compact View
 # =========================================================
 applied = st.session_state.get("applied_filters", {"q": "", "tags": [], "mode": "ANY"})
 filtered_df = apply_filters(df, applied["q"], applied["tags"], applied["mode"])
 
 st.markdown("---")
-st.subheader(f"???? Saved Papers ??? Showing {len(filtered_df)} of {len(df)}")
+st.subheader(f"📄 Saved Papers — Showing {len(filtered_df)} of {len(df)}")
 st.caption(
-    "Auto backups: **Excel** `{XLSX_PATH}` ??? **CSV** `{CSV_PATH}` ??? **JSON** `{JSON_PATH}` (always up-to-date)"
+    "Auto backups: **Excel** `{XLSX_PATH}` → **CSV** `{CSV_PATH}` → **JSON** `{JSON_PATH}` (always up-to-date)"
 )
 
 sc1, sc2, sc3 = st.columns([2.2, 1.2, 1.2])
@@ -438,17 +438,17 @@ def render_card(row, i, key_prefix: str):
     chips_html = tag_chips_html(tags_list)
 
     essentials_html = (
-        f"<p style='margin:2px 0'><b>???? Authors:</b> {row['authors']}</p>"
-        f"<p style='margin:2px 0'><b>???? Year:</b> {normalize_year_value(row['year'])}</p>"
-        f"<p style='margin:2px 0'><b>???? Journal:</b> {row['journal']}</p>"
-        f"<p style='margin:2px 0'><b>?????????????????? Population:</b> {row['population']}</p>"
-        f"<p style='margin:2px 0'><b>???? Takeaway:</b> {row['takeaway']}</p>"
+        f"<p style='margin:2px 0'><b>👤 Authors:</b> {row['authors']}</p>"
+        f"<p style='margin:2px 0'><b>📅 Year:</b> {normalize_year_value(row['year'])}</p>"
+        f"<p style='margin:2px 0'><b>🏛 Journal:</b> {row['journal']}</p>"
+        f"<p style='margin:2px 0'><b>🧑‍🤝‍🧑 Population:</b> {row['population']}</p>"
+        f"<p style='margin:2px 0'><b>📝 Takeaway:</b> {row['takeaway']}</p>"
     )
     more_html = (
-        f"<p style='margin:2px 0'><b>???? Variables:</b> {row['main_variables']}</p>"
-        f"<p style='margin:2px 0'><b>???? Measures:</b> {row['measures']}</p>"
-        f"<p style='margin:2px 0'><b>???? DOI/URL:</b> {row['doi_or_url'] or '???'}</p>"
-        f"<p style='margin:2px 0'><b>???? Notes:</b> {row['notes'] or '???'}</p>"
+        f"<p style='margin:2px 0'><b>🔬 Variables:</b> {row['main_variables']}</p>"
+        f"<p style='margin:2px 0'><b>🧪 Measures:</b> {row['measures']}</p>"
+        f"<p style='margin:2px 0'><b>🔗 DOI/URL:</b> {row['doi_or_url'] or '—'}</p>"
+        f"<p style='margin:2px 0'><b>🗒 Notes:</b> {row['notes'] or '—'}</p>"
     )
 
     st.markdown(
@@ -461,7 +461,7 @@ def render_card(row, i, key_prefix: str):
             background:{card_bg};
             box-shadow: 2px 2px 8px rgba(0,0,0,0.08);
         ">
-            <h4 style="margin:0 0 6px 0;">???? {row['title'] or '(Untitled)'}</h4>
+            <h4 style="margin:0 0 6px 0;">📖 {row['title'] or '(Untitled)'}</h4>
             {essentials_html if compact_view else essentials_html + more_html}
             <div style="margin:6px 0 4px 0">{chips_html}</div>
         </div>
@@ -479,7 +479,7 @@ def render_card(row, i, key_prefix: str):
             st.session_state[f"editing_{rec_id}"] = True
     with b2:
         confirm_key = f"{key_prefix}_confirm_{rec_id}"
-        confirm_delete = st.checkbox("??????confirm delete", key=confirm_key, value=st.session_state.get(confirm_key, False))
+        confirm_delete = st.checkbox("❗️confirm delete", key=confirm_key, value=st.session_state.get(confirm_key, False))
     with b3:
         if st.button("Delete", key=f"{key_prefix}_delete_{rec_id}", disabled=not confirm_delete):
             real_idx = idx_by_id(df, rec_id)
@@ -510,7 +510,7 @@ def render_card(row, i, key_prefix: str):
                 new_authors = st.text_input("Authors", current["authors"], key=f"{key_prefix}_edit_authors_{rec_id}")
                 new_journal = st.text_input("Journal / Conference / Source", current["journal"], key=f"{key_prefix}_edit_journal_{rec_id}")
 
-                # ---- Population????????????????????? + tip + ????????????----
+                # ---- Population + tip ----
                 st.markdown("**Population**")
                 st.caption("Tip: describe the population; put keywords in Tags.")
                 new_population = st.text_input("", current["population"],
@@ -521,7 +521,7 @@ def render_card(row, i, key_prefix: str):
                 new_measures = st.text_area("Measures / Methods", current["measures"], key=f"{key_prefix}_edit_measures_{rec_id}")
                 new_takeaway = st.text_area("Takeaway / Key Points", current["takeaway"], key=f"{key_prefix}_edit_takeaway_{rec_id}")
 
-                # ---- Tags????????????????????? + ????????? tip + ???????????????----
+                # ---- Tags----
                 st.markdown("**Tags (autocomplete from existing)**")
                 st.caption("Tip: add population keywords (e.g., adolescents, depression) as tags so that you can filter by population.")
                 tagc1, tagc2 = st.columns([3, 2])
@@ -584,7 +584,7 @@ else:
         grouped = grouped.sort_values(by=["_y","saved_at"], ascending=[False, False])
         for yr, g in grouped.groupby("_y", sort=False):
             label = "Unknown" if (yr == -10**9) else str(yr)
-            with st.expander(f"???? Year: {label} ({len(g)})", expanded=False):
+            with st.expander(f"📅 Year: {label} ({len(g)})", expanded=False):
                 cols = st.columns(3)
                 for i, row in g.reset_index(drop=True).iterrows():
                     with cols[i % 3]:
@@ -603,7 +603,7 @@ else:
         if exploded:
             gdf = pd.DataFrame(exploded).sort_values(by=["__author_group","saved_at"], ascending=[True, False])
             for author, g in gdf.groupby("__author_group", sort=True):
-                with st.expander(f"???? Author: {author} ({len(g)})", expanded=False):
+                with st.expander(f"👤 Author: {author} ({len(g)})", expanded=False):
                     cols = st.columns(3)
                     for i, row in g.reset_index(drop=True).iterrows():
                         with cols[i % 3]:
@@ -619,7 +619,7 @@ else:
         grouped["__journal"] = grouped["journal"].apply(norm_j)
         grouped = grouped.sort_values(by=["__journal","saved_at"], ascending=[True, False])
         for jn, g in grouped.groupby("__journal", sort=True):
-            with st.expander(f"???? Journal: {jn} ({len(g)})", expanded=False):
+            with st.expander(f"🏛 Journal: {jn} ({len(g)})", expanded=False):
                 cols = st.columns(3)
                 for i, row in g.reset_index(drop=True).iterrows():
                     with cols[i % 3]:
@@ -651,7 +651,7 @@ else:
 
             for tg in tags_sorted:
                 rows = [r for (t, r) in all_pairs if t == tg]
-                with st.expander(f"???? Tag: {tg} ({len(rows)})", expanded=False):
+                with st.expander(f"🏷 Tag: {tg} ({len(rows)})", expanded=False):
                     cols = st.columns(3)
                     for i, row in pd.DataFrame(rows).reset_index(drop=True).iterrows():
                         with cols[i % 3]:
@@ -660,10 +660,10 @@ else:
             st.info("No tags to group.")
 
 # =========================================================
-# Tag Stats & Fancy Tag Cloud???HTML/CSS???+ ????????? Chips
+# Tag Stats & Fancy Tag Cloud（HTML/CSS）+ Clickable Chips
 # =========================================================
 st.markdown("---")
-st.subheader("???? Tag Statistics & Cloud (based on **applied** filters)")
+st.subheader("🏷 Tag Statistics & Cloud (based on **applied** filters)")
 
 tag_counter = Counter()
 for tags in filtered_df["tags"]:
@@ -711,7 +711,7 @@ else:
                 set_filters_to_tag(t)
 
 # =========================================================
-# Full Export / Backup (All Records) ?????? ??????????????????
+# Full Export / Backup (All Records) —— automatically update
 # =========================================================
 st.markdown("---")
 st.subheader("Full Export / Backup (All Records)")
